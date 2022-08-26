@@ -15,7 +15,7 @@ First, convert gene names to ENSEMBL ids.
 ```{r gene id conversion, warning=FALSE, message=FALSE}
 ah <- AnnotationHub()
 orgdb <- AnnotationHub::query(ah, pattern = c("Rattus", "OrgDb"))[["AH84125"]]
-genes <- read.csv("target_list.csv")$genes # 2073 genes
+genes <- read.csv("target_genes_all_no_rep.csv")$genes # 2073 genes
 ensembl <- useMart("ensembl")
 datasets <- listDatasets(ensembl)
 ensembl <- useDataset("rnorvegicus_gene_ensembl", mart = ensembl)
