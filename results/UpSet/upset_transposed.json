@@ -1,5 +1,5 @@
 {
-	"file": "https://raw.githubusercontent.com/yuan-pu/try/main/upset_transposed.csv",
+	"file": "https://raw.githubusercontent.com/compbiocore/EGME/yuan-updates/results/UpSet/upset_transposed.csv?token=GHSAT0AAAAAABWBS4USTL5BLEO2OLCWVTCOYYI45XA",
 	"name": "predicted targets of significant miRNAs",
 	"header": 0,
 	"separator": ",",
