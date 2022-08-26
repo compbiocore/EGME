@@ -1,0 +1,35 @@
+---
+title: "Over Representation Analysis for Target Genes of Signifcant miRNAs"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(AnnotationHub)
+library(clusterProfiler)
+library(enrichplot)
+library(biomaRt)
+```
+
+Given the list of significant miRNAs, a list of their putative targets is manually composed using miRBase. Here, use enrichGo function from clusterProfiler package to conduct enrichment analysis.
+First, convert gene names to ENSEMBL ids.
+```{r gene id conversion, warning=FALSE, message=FALSE}
+ah <- AnnotationHub()
+orgdb <- AnnotationHub::query(ah, pattern = c("Rattus", "OrgDb"))[["AH84125"]]
+genes <- read.csv("target_list.csv")$genes # 2073 genes
+ensembl <- useMart("ensembl")
+datasets <- listDatasets(ensembl)
+ensembl <- useDataset("rnorvegicus_gene_ensembl", mart = ensembl)
+annot <- getBM(attributes = c("external_gene_name", "ensembl_gene_id"), 
+               filters = "external_gene_name", values = genes, mart = ensembl) # 2003 genes
+```
+There are 2073 genes before id conversion and 2003 genes after. 
+Then run enrichGO on the genes and plot 15 functions involving top number of genes in the group.
+```{r enrich GO}
+ego <- enrichGO(gene = annot$ensembl_gene_id,
+                keyType = "ENSEMBL",
+                ont = "BP",
+                OrgDb = orgdb,
+                readable = TRUE)
+
+dotplot(ego, showCategory = 15) + ggtitle("target genes of significant miRNAs")
+```
