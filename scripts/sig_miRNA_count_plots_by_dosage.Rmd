@@ -1,0 +1,151 @@
+---
+title: "Significant miRNA Counts Plot Against Dosages"
+output: html_document
+---
+
+###{.tabset}
+
+```{r}
+library(dplyr)
+```
+
+#### rno-miR-200b-3p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-200b-3p', , intgroup='dosage')
+```
+
+#### rno-miR-221-3p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-221-3p', , intgroup='dosage')
+```
+
+#### rno-miR-200a-3p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-200a-3p', , intgroup='dosage')
+```
+
+#### rno-let-7c-5p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-let-7c-5p', , intgroup='dosage')
+```
+
+#### rno-miR-429
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-429', , intgroup='dosage')
+```
+
+#### rno-miR-365-3p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-365-3p', , intgroup='dosage')
+```
+
+#### rno-miR-27a-3p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-27a-3p', , intgroup='dosage')
+```
+
+#### rno-miR-205
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-205', , intgroup='dosage')
+```
+
+#### rno-miR-23a-3p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-23a-3p', , intgroup='dosage')
+```
+
+#### rno-miR-24-3p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-24-3p', , intgroup='dosage')
+```
+
+#### rno-miR-148a-3p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-148a-3p', , intgroup='dosage')
+```
+
+#### rno-let-7b-5p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-let-7b-5p', , intgroup='dosage')
+```
+
+#### rno-miR-871-3p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-871-3p', , intgroup='dosage')
+```
+
+#### rno-miR-451-5p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-451-5p', , intgroup='dosage')
+```
+
+#### rno-miR-10a-5p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-10a-5p', , intgroup='dosage')
+```
+
+#### rno-miR-320-3p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-320-3p', , intgroup='dosage')
+```
+
+#### rno-miR-125a-5p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-125a-5p', , intgroup='dosage')
+```
+
+#### rno-miR-223-3p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-223-3p', , intgroup='dosage')
+```
+
+#### rno-miR-150-5p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-150-5p', , intgroup='dosage')
+```
+
+#### rno-miR-23b-3p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-23b-3p', , intgroup='dosage')
+```
+
+#### rno-let-7d-5p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-let-7d-5p', , intgroup='dosage')
+```
+
+#### rno-miR-741-3p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-741-3p', , intgroup='dosage')
+```
+
+#### rno-miR-509-5p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-509-5p', , intgroup='dosage')
+```
+
+#### rno-miR-30d-5p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-30d-5p', , intgroup='dosage')
+```
+
+#### rno-miR-195-5p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-195-5p', , intgroup='dosage')
+```
+
+#### rno-miR-125b-5p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-125b-5p', , intgroup='dosage')
+```
+
+#### rno-miR-449a-5p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-449a-5p', , intgroup='dosage')
+```
+
+#### rno-miR-145-5p
+```{r, results = 'asis'}
+plotCounts(dds, gene=, 'rno-miR-145-5p', , intgroup='dosage')
+```
+
