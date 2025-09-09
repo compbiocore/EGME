@@ -1,0 +1,157 @@
+---
+title: "trna_plots"
+format: html
+editor: visual
+---
+
+# Overview
+
+This notebook generates tRNA coverage plots. The file inputs are all on:
+
+`smb://files22.brown.edu/research/BM_SpadeLab/EGME/CBC/CBC_Yuan_updates/sRNAtoolbox/sRNAbench_results/`
+
+and organized as separate zipped folders under `Library_xx.fastq.zip` , e.g. `Library_01.fastq.zip`. We have copied them `/Users/aguang/CORE/egme/research_mount` for ability to use in R. (tried a permanent local mount from cifs but couldn't figure out syntax) The relevant files in each folder are the `reads.annotation` files, which have the following column structures (taken from the sRNAbench toolkit manual):
+
+1.  read sequence
+2.  the read count 
+3.  RPM: The Reads Per Million normalized by the total number of genome mapped reads (genome mode) or the total number of reads in the analysis (sequence library mode)
+4.  Classification group. It consists of the name of annotation file (for libs=) or hairpin/mature (microRNAs from miRBase) plus the mapping orientation (sense or anti-sense). The format is “AnnotationGroup#Orientation”. Note that the name can be “mixed” if the read maps to several different annotations. 
+5.  Mapped Annotations: This column contains all annotations to which the read maps. The format for the mapping to one element is: “AnnotationGroup#AnnotationName#Orientation#Chromosome position”. Note that the chromosome position is only applicable in the genome mode (for Library mode a dummy value is set ’s’). As a read can map to several different annotations, those are separated by ’\$’. For example, “hv_030312_v2_18#MLOC_55934.3#antisense#s\$hv_030312_v2_18#MLOC_55933.2#sense#s” means that i) the corresponding read mapped to twice (two annotation strings separated by one dollar sign), ii) the read maps one gene in sense and another one in antisense direction, iii) “hv_030312_v2_18 is the name of the library (AnnotationGroup) given at the common line like this libs=, iv) The gene names (AnnotationName) are MLOC_55933.2 and MLOC_55934.3 
+6.  the number of mapped annotation
+
+For example:
+
+```         
+TAGGATTGGGTGTATTGGTAGCACGGAGAATTTTGAATTCTTAGG 2 0.1997018650856137 Rnor_6_0_RNAcentral#sense Rnor_6_0_RNAcentral#URS00001EA296_10116:tRNA:Rattus_norvegicus#sense#URS00001EA296_10116:tRNA:Rattus_norvegicus,1,45$Rnor_6_0_RNAcentral#URS00004876BF_10116:tRNA:Rattus_norvegicus#sense#URS00004876BF_10116:tRNA:Rattus_norvegicus,1,45 2
+```
+
+or
+
+```         
+CCGCGGCCCGGGTTCGTTTCCC 3 0.2995527976284205 Rnor_6_0_genomic_tRNA#sense Rnor_6_0_genomic_tRNA#Rattus_norvegicus_chr13_random.trna25-GluCTC:tRNA#sense#Rattus_norvegicus_chr13_random.trna25-GluCTC:tRNA,41,62$Rnor_6_0_genomic_tRNA#Rattus_norvegicus_chr13.trna3809-GluCTC:tRNA#sense#Rattus_norvegicus_chr13.trna3809-GluCTC:tRNA,41,62$Rnor_6_0_genomic_tRNA#Rattus_norvegicus_chr2.trna4121-GluTTC:tRNA#sense#Rattus_norvegicus_chr2.trna4121-GluTTC:tRNA,41,62$Rnor_6_0_genomic_tRNA#Rattus_norvegicus_chr10.trna11370-GluCTC:tRNA#sense#Rattus_norvegicus_chr10.trna11370-GluCTC:tRNA,41,62$Rnor_6_0_genomic_tRNA#Rattus_norvegicus_chr2.trna4117-GluTTC:tRNA#sense#Rattus_norvegicus_chr2.trna4117-GluTTC:tRNA,41,62$Rnor_6_0_genomic_tRNA#Rattus_norvegicus_chr13_random.trna22-GluCTC:tRNA#sense#Rattus_norvegicus_chr13_random.trna22-GluCTC:tRNA,41,62$Rnor_6_0_genomic_tRNA#Rattus_norvegicus_chr1.trna16347-GluCTC:tRNA#sense#Rattus_norvegicus_chr1.trna16347-GluCTC:tRNA,41,62$Rnor_6_0_genomic_tRNA#Rattus_norvegicus_chr2.trna7260-GluCTC:tRNA#sense#Rattus_norvegicus_chr2.trna7260-GluCTC:tRNA,41,62$Rnor_6_0_genomic_tRNA#Rattus_norvegicus_chr13.trna2187-GluCTC:tRNA#sense#Rattus_norvegicus_chr13.trna2187-GluCTC:tRNA,41,62$Rnor_6_0_genomic_tRNA#Rattus_norvegicus_chr17.trna1684-GluCTC:tRNA#sense#Rattus_norvegicus_chr17.trna1684-GluCTC:tRNA,41,62 10
+```
+
+```{r setup, include=FALSE}
+#install.packages(c("tidyverse", "zip", "fs"))
+library(tidyverse)
+library(zip)
+library(fs)
+# Define the base directory path and the list of tRNAs
+base_path <- "/Users/aguang/CORE/egme/research_mount/"
+tRNA_list <- c("GluCTC", "AlaAGC", "CysGCA", "GluTTC", "LysCTT")
+```
+
+We write a function `process_tRNA_data` that given a file path and list of tRNAs:
+
+-   reads the annotation files in the files
+
+-   creates a tsv from the annotation files
+
+-   creates
+
+```{r process_function, include=FALSE}
+# Function to process a single annotation file
+process_tRNA_data <- function(file_path, tRNA_list) {
+  temp_dir <- tempdir()
+  unzip_path <- file.path(temp_dir, basename(file_path))
+  
+  # Unzip the file
+  zip::unzip(file_path, exdir = unzip_path)
+  
+  # Read the annotation file
+  annotation_file <- file.path(unzip_path, list.files(unzip_path, pattern = "reads.annotation", recursive = TRUE))
+  
+  # Read the data, handling potential issues with extra columns
+  df <- read_tsv(annotation_file, 
+                 col_names = c("sequence", "read_count", "RPM", "classification", "mapped_annotations", "num_mapped"),
+                 show_col_types = FALSE) %>%
+    mutate(mapped_annotations = as.character(mapped_annotations)) # Ensure column is character
+  
+  # Initialize a list to store coverage data for each tRNA
+  coverage_data <- list()
+  
+  # Loop through each tRNA of interest
+  for (tRNA in tRNA_list) {
+    # Filter for the specific tRNA and process the mapped_annotations column
+    tRNA_df <- df %>%
+      filter(str_detect(mapped_annotations, tRNA)) %>%
+      rowwise() %>%
+      mutate(
+        # Extract the first matching annotation for position extraction
+        first_mapping = str_extract(mapped_annotations, paste0("Rattus_norvegicus_chr.*", tRNA, ":tRNA,[^$]+")),
+        # Extract start and end positions
+        positions = str_extract(first_mapping, "[0-9]+,[0-9]+"),
+        start = as.integer(str_extract(positions, "[0-9]+")),
+        end = as.integer(str_extract(str_remove(positions, "[0-9]+,"), "[0-9]+"))
+      ) %>%
+      ungroup() %>%
+      filter(!is.na(start)) # Remove rows where positions couldn't be extracted
+    
+    # Generate a tidy data frame of coverage counts
+    tRNA_coverage <- tRNA_df %>%
+      rowwise() %>%
+      mutate(position = list(seq(start, end))) %>%
+      unnest(position) %>%
+      group_by(position) %>%
+      dplyr::summarise(coverage = sum(read_count), .groups = 'drop')
+    
+    coverage_data[[tRNA]] <- tRNA_coverage
+  }
+  
+  # Clean up temporary files
+  fs::dir_delete(temp_dir)
+  
+  return(coverage_data)
+}
+```
+
+```{r coverage}
+# Create a list of all file paths
+file_paths <- sprintf("%sLibrary_%02d.fastq.zip", base_path, 1:29)
+
+# Initialize a list to store aggregated coverage data for all tRNAs
+all_tRNA_coverage <- list()
+for (tRNA in tRNA_list) {
+  all_tRNA_coverage[[tRNA]] <- data.frame()
+}
+
+# Loop through all files and process them
+for (i in seq_along(file_paths)) {
+  file <- file_paths[i]
+  cat("Processing file:", file, "\n")
+  
+  # Get coverage data for the current file
+  current_coverage <- process_tRNA_data(file, tRNA_list)
+  
+  # Append to the main aggregation data frame
+  for (tRNA in tRNA_list) {
+    if (nrow(current_coverage[[tRNA]]) > 0) {
+      all_tRNA_coverage[[tRNA]] <- bind_rows(all_tRNA_coverage[[tRNA]], current_coverage[[tRNA]])
+    }
+  }
+}
+
+# Aggregate the final coverage by position and tRNA
+final_coverage_data <- bind_rows(all_tRNA_coverage, .id = "tRNA_name") %>%
+  group_by(tRNA_name, position) %>%
+  summarise(total_coverage = sum(coverage), .groups = 'drop')
+#write_csv(final_coverage_data,file=file.path("/Users/aguang/CORE/egme/EGME/notebooks/final_coverage_data.csv"))
+```
+
+```{r}
+# Create the ggplot2 figure
+ggplot(final_coverage_data, aes(x = position, y = total_coverage, fill = tRNA_name)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~tRNA_name, scales = "free_x") +
+  labs(
+    title = "tRNA Coverage Plots Across All Libraries",
+    x = "Position on tRNA",
+    y = "Total Read Coverage Count"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    strip.text = element_text(face = "bold")
+  )
+```
