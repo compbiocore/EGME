@@ -2,7 +2,8 @@
 
 This repository contains code for the EGME experiment with Dan Spade. The folders are organized thusly:
 
- * **scripts:** additional scripts created for analysis of data.
+ * **scripts:**
+   * *parse_nonSA.py:* Python script to parse results from sRNAbench into multi-mapped adjusted read counts for different small RNA groups (e.g. miRNAs, tRNAs, ncRNAs, cDNA) based on the ".grouped" files from sRNAbench.
  * **notebooks:** notebooks for processed data
  * **results:** any files that will be provided to the collaborator
 
