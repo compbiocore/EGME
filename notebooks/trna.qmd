@@ -38,7 +38,7 @@ library(zip)
 library(fs)
 # Define the base directory path and the list of tRNAs
 base_path <- "/Users/aguang/CORE/egme/research_mount/"
-tRNA_list <- c("GluCTC", "AlaAGC", "CysGCA", "GluTTC", "LysCTT")
+tRNA_list <- c("GluCTC", "AlaAGC", "CysGCA", "GluTTC", "LysCTT", "GlyCCC")
 ```
 
 We write a function `process_tRNA_data` that given a file path and list of tRNAs:
@@ -67,8 +67,8 @@ process_tRNA_data <- function(file_path, tRNA_list) {
                  show_col_types = FALSE) %>%
     mutate(mapped_annotations = as.character(mapped_annotations)) # Ensure column is character
   
-  # Initialize a list to store coverage data for each tRNA
-  coverage_data <- list()
+  # Initialize a list to store tRNA_dfs for each tRNA
+  tRNA_dfs <- list()
   
   # Loop through each tRNA of interest
   for (tRNA in tRNA_list) {
@@ -87,62 +87,95 @@ process_tRNA_data <- function(file_path, tRNA_list) {
       ungroup() %>%
       filter(!is.na(start)) # Remove rows where positions couldn't be extracted
     
-    # Generate a tidy data frame of coverage counts
-    tRNA_coverage <- tRNA_df %>%
-      rowwise() %>%
-      mutate(position = list(seq(start, end))) %>%
-      unnest(position) %>%
-      group_by(position) %>%
-      dplyr::summarise(coverage = sum(read_count), .groups = 'drop')
-    
-    coverage_data[[tRNA]] <- tRNA_coverage
+    tRNA_dfs[[tRNA]] <- tRNA_df
   }
   
-  # Clean up temporary files
+  individual_tRNA_sequences <- bind_rows(tRNA_dfs, .id = "tRNA_name")
   fs::dir_delete(temp_dir)
-  
-  return(coverage_data)
+  return(individual_tRNA_sequences)
 }
+    
+    # Generate a tidy data frame of coverage counts
+    #tRNA_coverage <- tRNA_df %>%
+    #  rowwise() %>%
+    #  mutate(position = list(seq(start, end))) %>%
+    #  unnest(position) %>%
+    #  group_by(position) %>%
+    #  dplyr::summarise(coverage = sum(read_count), .groups = 'drop')
+    
+    #coverage_data[[tRNA]] <- tRNA_coverage
+    #}
+  
+
+  
+  #return(coverage_data)
+#}
 ```
 
-```{r coverage}
+```{r coverage, eval=FALSE}
 # Create a list of all file paths
 file_paths <- sprintf("%sLibrary_%02d.fastq.zip", base_path, 1:29)
 
-# Initialize a list to store aggregated coverage data for all tRNAs
-all_tRNA_coverage <- list()
-for (tRNA in tRNA_list) {
-  all_tRNA_coverage[[tRNA]] <- data.frame()
-}
+# Initialize a list to store aggregated sequence data for all tRNAs
+all_tRNA_sequences <- list()
 
 # Loop through all files and process them
 for (i in seq_along(file_paths)) {
   file <- file_paths[i]
   cat("Processing file:", file, "\n")
   
-  # Get coverage data for the current file
-  current_coverage <- process_tRNA_data(file, tRNA_list)
+  current_sequences <- process_tRNA_data(file, tRNA_list)
   
-  # Append to the main aggregation data frame
-  for (tRNA in tRNA_list) {
-    if (nrow(current_coverage[[tRNA]]) > 0) {
-      all_tRNA_coverage[[tRNA]] <- bind_rows(all_tRNA_coverage[[tRNA]], current_coverage[[tRNA]])
-    }
+  if (nrow(current_sequences)>0) {
+      all_tRNA_sequences[[i]] <- current_sequences
   }
 }
+  
+# combine all files
+combined_sequences <- bind_rows(all_tRNA_sequences, .id="id")
+
+# assign dosage based on id
+matchdf <- data.frame(id=1:40,dosage=rep(c(0,0,50,50,60,60,75,75),5))
+combined_sequences$dosage <- matchdf$dosage[match(combined_sequences$id, matchdf$id)]
+
+  
+# Create a sequence ID for each unique sequence based on length and position
+plot_data <- combined_sequences %>%
+  arrange(tRNA_name, start, desc(end)) %>%
+  group_by(tRNA_name) %>%
+  mutate(sequence_id = row_number()) %>%
+  ungroup() %>%
+    select(tRNA_name, start, end, sequence_id, read_count) %>%
+    group_by(tRNA_name, start, end) %>%
+    dplyr::summarise(read_count=sum(read_count)) %>%
+    group_by(tRNA_name) %>%
+    arrange(tRNA_name, start, desc(end)) %>%
+    mutate(ymax=cumsum(read_count),ymin=lag(ymax,n=1,default=0), sequence_id=row_number())
+
+# Calculate the coverage for the black line plot
+coverage_line_data <- plot_data %>%
+  rowwise() %>%
+  mutate(position = list(seq(start, end))) %>%
+  unnest(position) %>%
+  group_by(tRNA_name, position) %>%
+  summarise(total_coverage = sum(read_count), .groups = 'drop')
+
+write_csv(plot_data, file=file.path("/Users/aguang/CORE/egme/EGME/notebooks/plot_data.csv"))
+write_csv(coverage_line_data, file=file.path("/Users/aguang/CORE/egme/EGME/notebooks/coverage_line_data.csv"))
 
 # Aggregate the final coverage by position and tRNA
-final_coverage_data <- bind_rows(all_tRNA_coverage, .id = "tRNA_name") %>%
-  group_by(tRNA_name, position) %>%
-  summarise(total_coverage = sum(coverage), .groups = 'drop')
+#final_coverage_data <- bind_rows(all_tRNA_coverage, .id = "tRNA_name") %>%
+#  group_by(tRNA_name, position) %>%
+#  summarise(total_coverage = sum(coverage), .groups = 'drop')
 #write_csv(final_coverage_data,file=file.path("/Users/aguang/CORE/egme/EGME/notebooks/final_coverage_data.csv"))
 ```
 
-```{r}
-# Create the ggplot2 figure
-ggplot(final_coverage_data, aes(x = position, y = total_coverage, fill = tRNA_name)) +
+```{r, echo=FALSE}
+# Create the coverage only ggplot2 figure
+coverage_line_data$tRNA_name <- factor(coverage_line_data$tRNA_name, c("GlyCCC","GluTTC","GluCTC","LysCTT","AlaAGC","CysGCA"))
+ggplot(coverage_line_data, aes(x = position, y = total_coverage, fill = tRNA_name)) +
   geom_bar(stat = "identity") +
-  facet_wrap(~tRNA_name, scales = "free_x") +
+  facet_wrap(~tRNA_name, scales = "free") +
   labs(
     title = "tRNA Coverage Plots Across All Libraries",
     x = "Position on tRNA",
@@ -154,4 +187,106 @@ ggplot(final_coverage_data, aes(x = position, y = total_coverage, fill = tRNA_na
     plot.title = element_text(hjust = 0.5, face = "bold"),
     strip.text = element_text(face = "bold")
   )
+```
+
+```{r overlay, echo=FALSE}
+# Create the ggplot2 overlay figure
+coverage_line_data$tRNA_name <- factor(coverage_line_data$tRNA_name, c("GlyCCC","GluTTC","GluCTC","LysCTT","AlaAGC","CysGCA"))
+
+ggplot(coverage_line_data, aes(x = position, y = total_coverage, color = tRNA_name)) +
+  geom_path(stat = "identity", position="identity") +
+  labs(
+    title = "tRNA Coverage Plots Across All Libraries",
+    x = "Position on tRNA",
+    y = "Total Read Coverage Count"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+```{r msa_coverage}
+# Create the ggplot2 figure
+ggplot() +
+  # Layer 1: The stacked heatmap
+  geom_rect(
+    data = plot_data,
+    aes(
+      xmin = start,
+      xmax = end,
+      ymin = ymin,
+      ymax = ymax, 
+      #ymin = sequence_id - 0.5,
+      #ymax = sequence_id + 0.5,
+      fill = read_count
+    ),
+    alpha = 0.8
+  ) +
+  # Layer 2: The coverage line plot
+  geom_line(
+    data = coverage_line_data,
+    aes(x = position, y = total_coverage, color=tRNA_name),
+    size = 1,
+    color = "black"
+  ) +
+  # Customization and labels
+  facet_wrap(~tRNA_name, scales = "free") +
+  scale_fill_gradient(name = "Read Count") +
+  labs(
+    title = "tRNA Sequence Coverage Across All Libraries",
+    x = "Position",
+    y = "Sequences"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+```{r}
+ggplot() +
+  # Layer 1: The stacked heatmap
+  geom_rect(
+    data = plot_data,
+    aes(
+      xmin = start,
+      xmax = end,
+      ymin = sequence_id - 0.5,
+      ymax = sequence_id + 0.5,
+      fill = read_count,
+      
+    ),
+    alpha = 0.8
+  ) +
+  # Customization and labels
+  facet_wrap(~tRNA_name, scales = "free") +
+  scale_fill_viridis_c(name = "Read Count", option = "magma") +
+  labs(
+    title = "tRNA Sequence Coverage Across All Libraries",
+    x = "Position",
+    y = "Sequences"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+```{r}
+# Create a sequence ID for each unique sequence based on length and position
+plot_data_dosage <- combined_sequences %>%
+  arrange(tRNA_name, start, desc(end)) %>%
+  group_by(tRNA_name, dosage) %>%
+  mutate(sequence_id = row_number()) %>%
+  ungroup() %>%
+    select(tRNA_name, start, end, sequence_id, read_count, dosage) %>%
+    group_by(tRNA_name, dosage, start, end) %>%
+    dplyr::summarise(read_count=sum(read_count)) %>%
+    group_by(tRNA_name, dosage) %>%
+    arrange(tRNA_name, start, desc(end)) %>%
+    mutate(ymax=cumsum(read_count),ymin=lag(ymax,n=1,default=0), sequence_id=row_number())
 ```
