@@ -65,7 +65,7 @@ project_id:
 A Docker image is provided in `metadata/Dockerfile` to ensure reproducibility of the analysis environment. The image is based on `rocker/rstudio:4.1.2` and includes:
 
 - R 4.1.2 with RStudio
-- Bioinformatics tools: samtools, bedtools, subread, picard, igv, fastqc, trimmomatic, bowtie
+- Bioinformatics tools: samtools, bedtools, subread, picard, igv, fastqc, trimmomatic, bowtie (versions as specified in the Dockerfile)
 - Required system libraries for R package compilation
 - Python 3 with pip
 
@@ -74,7 +74,7 @@ To build and run the Docker environment:
 ```bash
 cd metadata
 docker build -t egme-analysis .
-docker run -e PASSWORD=yourpassword -p 8787:8787 -v /path/to/data:/home/rstudio/data egme-analysis
+docker run -e PASSWORD=SECURE_PASSWORD -p 8787:8787 -v /path/to/data:/home/rstudio/data egme-analysis
 ```
 
 Then access RStudio at `http://localhost:8787` with username `rstudio` and your chosen password.
