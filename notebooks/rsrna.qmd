@@ -1,0 +1,302 @@
+---
+title: "rsrna_analysis"
+format: html
+editor: visual
+---
+
+```{r, eval=FALSE, include=FALSE}
+devtools::install_github("cozyrna/FUSION")
+```
+
+# Overview
+
+This notebook:
+
+-   Annotates rsRNAs by pulling the full names from RNACentral using the API
+
+-   Runs FUSION on the counts matrix of rsRNAs
+
+-   Generates rsRNA coverage plots
+
+## File input
+
+-   The file inputs are all on:
+
+`smb://files22.brown.edu/research/BM_SpadeLab/EGME/CBC/CBC_Yuan_updates/sRNAtoolbox/sRNAbench_results/`
+
+and organized as separate zipped folders under `Library_xx.fastq.zip` , e.g. `Library_01.fastq.zip`. We have copied them `/Users/aguang/CORE/egme/research_mount` for ability to use in R. The relevant files in each folder are the `reads.annotation` files, which have the following column structures (taken from the sRNAbench toolkit manual):
+
+1.  read sequence
+2.  the read count 
+3.  RPM: The Reads Per Million normalized by the total number of genome mapped reads (genome mode) or the total number of reads in the analysis (sequence library mode)
+4.  Classification group. It consists of the name of annotation file (for libs=) or hairpin/mature (microRNAs from miRBase) plus the mapping orientation (sense or anti-sense). The format is “AnnotationGroup#Orientation”. Note that the name can be “mixed” if the read maps to several different annotations. 
+5.  Mapped Annotations: This column contains all annotations to which the read maps. The format for the mapping to one element is: “AnnotationGroup#AnnotationName#Orientation#Chromosome position”. Note that the chromosome position is only applicable in the genome mode (for Library mode a dummy value is set ’s’). As a read can map to several different annotations, those are separated by ’\$’. For example, “hv_030312_v2_18#MLOC_55934.3#antisense#s\$hv_030312_v2_18#MLOC_55933.2#sense#s” means that i) the corresponding read mapped to twice (two annotation strings separated by one dollar sign), ii) the read maps one gene in sense and another one in antisense direction, iii) “hv_030312_v2_18 is the name of the library (AnnotationGroup) given at the common line like this libs=, iv) The gene names (AnnotationName) are MLOC_55933.2 and MLOC_55934.3 
+6.  the number of mapped annotation
+
+They have already been processed here, so the plot can be run just by reading in the CSV files:
+
+-   `rRNA_coverage_line_data.csv`
+
+```{r setup, include=FALSE}
+#install.packages(c("tidyverse", "zip", "fs"))
+library(tidyverse)
+library(zip)
+library(fs)
+library(FUSION)
+library(httr)
+library(readxl)
+library(jsonlite)
+library(pheatmap)
+rnacentral_results <- readRDS("/Users/aguang/CORE/egme/EGME/results/rnacentral_results.rds")
+counts2 <- read_csv("/Users/aguang/CORE/egme/EGME/results/read_counts/Rnor_6_0_RNAcentral_sense_counts.csv")
+base_path <- "/Users/aguang/CORE/egme"
+# not used
+#plot_data <- read_csv(file=file.path("/Users/aguang/CORE/egme/EGME/notebooks/rRNA_plot_data.csv"))
+coverage_line_data <- read_csv(file=file.path("/Users/aguang/CORE/egme/EGME/notebooks/rRNA_coverage_line_data.csv"))
+
+```
+
+## Annotation
+
+For annotation we pull the full names from RNACentral, which are typically of the form "Rattus norvegicus (Norway rat) 5S ribosomal RNA", "Rattus norvegicus (Norway rat) 5S ribosomal RNA (ENSRNOG00000044631.1)", "Rattus norvegicus (Norway rat) Eukaryotic large subunit ribosomal RNA", etc. For the purposes of the rsRNA analysis, we just focus on the set of 5S, 5.8S, 12S, etc rsRNAs as is done in FUSION, and exclude things like 40S ribosomal protein S2, large subunits, "Rattus norvegicus (Norway rat) rRNA AY172581.9 (ENSRNOG00000030478.3)", etc.
+
+```{r, api_func, echo=FALSE}
+fetch_rna_name <- function(id) {
+  url <- paste0("https://rnacentral.org/api/v1/rna/", id)
+  
+  message("Fetching: ", id)
+  
+  res <- GET(url)
+  
+  if (status_code(res) == 200) {
+    data <- fromJSON(rawToChar(res$content))
+    return(data$description)
+  } else {
+    return(NA)
+  }
+}
+```
+
+```{r rna_filt, echo=FALSE}
+rrna_only <- grep("\\brRNA", counts2$name)
+transcript_rrna <- sapply(strsplit(counts2$name[rrna_only], "_|:"), function(x) paste(x[1],x[2],sep="/"))
+#rnacentral_rrna <- lapply(transcript_rrna, fetch_rna_name)
+#write_rds(rnacentral_rrna, "/Users/aguang/CORE/egme/EGME/results/rnacentral_rrna.rds")
+rnacentral_rrna <- read_rds("/Users/aguang/CORE/egme/EGME/results/rnacentral_rrna.rds")
+rrna_transform <- sapply(rnacentral_rrna, function(x) {
+    s <- str_extract(x, "[0-9]+S (ribosomal RNA|rRNA)")
+    s <- str_replace(s, "ribosomal ", "r")
+    str_replace(s, " rRNA", "-rRNA") # formatting for fusion
+    })
+
+# which ones are not follpowing the formatting
+write(rnacentral_rrna[which(is.na(rrna_transform))] %>% unlist(), "/Users/aguang/CORE/egme/EGME/results/unidentified_rrnas.txt", ncolumns=1)
+```
+
+The number of rRNAs we have is `{r} length(rrna_only)` and after filtering to only get 5S, 8S, etc we end up with `{r} length(rrna_transform[!is.na(rrna_transform)])` rRNAs.
+
+## FUSION
+
+FUSION reads only from written files, so we have to write all of our csvs to tmp files for it. Additionally, it requires the matrix to be in a specific structure, where the first column is Sequence (name of specific transcript) and the second column is Annotation (which rRNA), with the rest of the columns as the samples. Finally, you have to give the specific groups (as a file) by group number as a line to FUSION.
+
+There are 2 ways to run FUSION: as a multisample multilevel (`FUSION_msmc`), in which case I believe it is basically seeing if an rRNA is differentially expressed across any levels, and as multisample single comparison (`FUSION_ms`), in which it is comparing one group to the other. We run both here, then use the results from `FUSION_ms` to create a heatmap.
+
+```{r fusion_msmc, echo=FALSE}
+# create matrix for fusion
+mat <- counts2[rrna_only,]
+mat$Annotation <- rrna_transform
+mat$Sequence <- mat$name
+mat <- select(mat, Sequence, Annotation, Library_01:Library_40)
+write_tsv(mat, file="tmp.txt")
+
+# create group for fusion
+groupPath <- "100.21 RNAseq summary 2020-07-06 DS.xlsx"
+groups <- read_excel(file.path("/Users/aguang/CORE/egme/EGME/metadata",groupPath))
+treatment <- arrange(groups, `sample number`)$`treatment (mg/kg)`
+write_file(arrange(groups, `sample number`)$`treatment (mg/kg)` %>% toString(), file="tmpcond.txt")
+
+FUSION_msmc("tmp.txt", "tmpcond.txt")
+#write_csv(FUSION_msmc("tmp.txt", "tmpcond.txt"), "/Users/aguang/CORE/egme/EGME/results/fusion_output.csv")
+```
+
+```{r fusion_ms, echo=FALSE, fig.cap="Heatmap of t-statistic values from FUSION at different dosage levels. * next to text indicates adjusted p-value < .05, i.e. that rRNA was differentially expressed at a given dosage level."}
+mat_s <- select(mat, Library_01:Library_40)
+mat0 <- mat_s[, which(treatment==0)]
+mat50 <- mat_s[, which(treatment==50)]
+mat60 <- mat_s[, which(treatment==60)]
+mat75 <- mat_s[, which(treatment==75)]
+mat50_0 <- cbind(Sequence=mat$Sequence, Annotation=mat$Annotation, mat0, mat50)
+write_tsv(mat50_0, "tmp50_0.txt")
+
+fusion_50_0 <- FUSION_ms("tmp50_0.txt", ncol(mat0), ncol(mat50))
+#write_csv(FUSION_ms("tmp50_0.txt", ncol(mat0), ncol(mat50)), "/Users/aguang/CORE/egme/EGME/results/fusion_50v0.csv")
+
+mat60_0 <- cbind(Sequence=mat$Sequence, Annotation=mat$Annotation, mat0, mat60)
+write_tsv(mat60_0, "tmp60_0.txt")
+
+fusion_60_0 <- FUSION_ms("tmp60_0.txt", ncol(mat0), ncol(mat60))
+write_csv(FUSION_ms("tmp60_0.txt", ncol(mat0), ncol(mat60)), "/Users/aguang/CORE/egme/EGME/results/fusion_60v0.csv")
+
+mat75_0 <- cbind(Sequence=mat$Sequence, Annotation=mat$Annotation, mat0, mat75)
+write_tsv(mat75_0, "tmp75_0.txt")
+
+fusion_75_0 <- FUSION_ms("tmp75_0.txt", ncol(mat0), ncol(mat75))
+write_csv(FUSION_ms("tmp75_0.txt", ncol(mat0), ncol(mat75)), "/Users/aguang/CORE/egme/EGME/results/fusion_75v0.csv")
+
+fusion_df <- bind_rows(list("50"=fusion_50_0, "60"=fusion_60_0, "75"=fusion_75_0), .id="group")
+fusion_mat <- fusion_df %>% select(group, sncrna_family, t) %>% pivot_wider(names_from=sncrna_family, values_from=t) %>% select(`12S-rRNA`:`8S-rRNA`) %>% as.matrix()
+
+signif <- fusion_df %>% mutate(sig=adjusted_p<.05) %>% select(group, sncrna_family, sig) %>% pivot_wider(names_from=sncrna_family, values_from=sig) %>% select(`12S-rRNA`:`8S-rRNA`)
+fusion_mat_text <- fusion_mat
+text1 <- paste0(signif(fusion_mat_text[2:3,], digits=3),"*")
+text2 <- paste0(signif(fusion_mat_text[1,3:6], digits=3),"*")
+text3 <- signif(fusion_mat_text[1,1:2], digits=3)
+fusion_mat_text[2:3,] <- text1
+fusion_mat_text[1,3:6] <- text2
+fusion_mat_text[1,1:2] <- text3
+
+rownames(fusion_mat) <- c(50, 60, 75)
+rg <- max(abs(fusion_mat))
+pheatmap(t(fusion_mat), breaks=seq(-rg, rg, length.out=100), display_numbers=t(fusion_mat_text), fontsize_number=15)
+```
+
+## Coverage plots
+
+For coverage plots we do the same thing as with the tsRNAs, with the exception that we have to do our own annotations now.
+
+```{r process_function, include=FALSE}
+# test: testdf <- process_rRNA_data(file.path(base_path, "research_mount", "Library_01.fastq.zip"), rRNA_transcripts, rRNAs)
+# Function to process a single annotation file
+process_rRNA_data <- function(file_path, rRNA_transcript_list, rRNA_list) {
+  temp_dir <- tempdir()
+  unzip_path <- file.path(temp_dir, basename(file_path))
+  
+  # Unzip the file
+  zip::unzip(file_path, exdir = unzip_path)
+  
+  # Read the annotation file
+  annotation_file <- file.path(unzip_path, list.files(unzip_path, pattern = "reads.annotation", recursive = TRUE))
+  
+  # Read the data, handling potential issues with extra columns
+  df <- read_tsv(annotation_file, 
+                 col_names = c("sequence", "read_count", "RPM", "classification", "mapped_annotations", "num_mapped"),
+                 show_col_types = FALSE) %>%
+    mutate(mapped_annotations = as.character(mapped_annotations)) # Ensure column is character
+  
+  # Initialize a list to store rRNA_dfs for each tRNA
+  rRNA_dfs <- list()
+  
+  # 1. Create a lookup table to easily map transcripts back to their names later
+    lookup_table <- tibble(
+    matched_transcript = rRNA_transcript_list,
+    rRNA_name = rRNA_list
+    )
+
+    # 2. Collapse the transcript list into a single regex OR pattern 
+    # e.g., "URS0001|URS0002|URS0003"
+    regex_pattern <- paste(rRNA_transcript_list, collapse = "|")
+
+    # 3. Process the entire dataframe at once
+    rRNA_df_all <- df %>%
+    # Filter rows that contain ANY of the transcripts
+    filter(str_detect(mapped_annotations, regex_pattern)) %>%
+    mutate(
+        # Extract WHICH transcript actually matched so we can group/join later
+        matched_transcript = str_extract(mapped_annotations, regex_pattern),
+        first_mapping = str_extract(mapped_annotations, paste0("(", regex_pattern, "),[^$]+")),
+        positions = str_extract(first_mapping, "[0-9]+,[0-9]+"),
+        start = as.integer(str_extract(positions, "^[0-9]+")), # ^ gets numbers at the start
+        end = as.integer(str_extract(positions, "[0-9]+$"))    # $ gets numbers at the end
+      ) %>%
+      filter(!is.na(start)) %>%
+      # Bring in your rRNA names (e.g., "5S-rRNA") by joining the lookup table
+      left_join(lookup_table, by = "matched_transcript")
+    
+    fs::dir_delete(temp_dir)
+    return(rRNA_df_all)
+}
+    
+    # Generate a tidy data frame of coverage counts
+    #tRNA_coverage <- tRNA_df %>%
+    #  rowwise() %>%
+    #  mutate(position = list(seq(start, end))) %>%
+    #  unnest(position) %>%
+    #  group_by(position) %>%
+    #  dplyr::summarise(coverage = sum(read_count), .groups = 'drop')
+    
+    #coverage_data[[tRNA]] <- tRNA_coverage
+    #}
+  
+
+  
+  #return(coverage_data)
+#}
+```
+
+```{r coverage, eval=FALSE}
+# Create a list of all file paths
+file_paths <- sprintf("%sLibrary_%02d.fastq.zip", file.path(base_path, "research_mount/"), 1:29)
+
+# which are the rRNAs we actually care about
+final_rRNA <- which(!is.na(rrna_transform))
+rRNA_transcripts <- counts2$name[rrna_only]
+rRNA_transcripts <- rRNA_transcripts[final_rRNA]
+rRNAs <- rrna_transform[final_rRNA]
+
+all_rRNA_sequences <- lapply(1:29, function(x) process_rRNA_data(file_paths[x], rRNA_transcripts, rRNAs))
+  
+combined_sequences <- bind_rows(all_rRNA_sequences, .id="id")
+#write_rds(combined_sequences, file.path(base_path,"EGME","results","rrna_combined_seqs.rds"))
+
+# assign dosage based on id
+matchdf <- data.frame(id=1:29,dosage=rep(c(0,0,50,50,60,60,75,75),5))
+combined_sequences$dosage <- matchdf$dosage[match(combined_sequences$id, matchdf$id)]
+
+  
+# Create a sequence ID for each unique sequence based on length and position
+plot_data <- combined_sequences %>%
+  arrange(rRNA_name, start, desc(end)) %>%
+  group_by(rRNA_name) %>%
+  mutate(sequence_id = row_number()) %>%
+  ungroup() %>%
+    select(rRNA_name, start, end, sequence_id, read_count) %>%
+    group_by(rRNA_name, start, end) %>%
+    dplyr::summarise(read_count=sum(read_count)) %>%
+    group_by(rRNA_name) %>%
+    arrange(rRNA_name, start, desc(end)) %>%
+    mutate(ymax=cumsum(read_count),ymin=lag(ymax,n=1,default=0), sequence_id=row_number())
+
+# Calculate the coverage for the black line plot
+coverage_line_data <- plot_data %>%
+  rowwise() %>%
+  mutate(position = list(seq(start, end))) %>%
+  unnest(position) %>%
+  group_by(rRNA_name, position) %>%
+  summarise(total_coverage = sum(read_count), .groups = 'drop')
+
+write_csv(plot_data, file=file.path("/Users/aguang/CORE/egme/EGME/notebooks/rRNA_plot_data.csv"))
+write_csv(coverage_line_data, file=file.path("/Users/aguang/CORE/egme/EGME/notebooks/rRNA_coverage_line_data.csv"))
+
+# Aggregate the final coverage by position and tRNA
+#final_coverage_data <- bind_rows(all_tRNA_coverage, .id = "tRNA_name") %>%
+#  group_by(tRNA_name, position) %>%
+#  summarise(total_coverage = sum(coverage), .groups = 'drop')
+#write_csv(final_coverage_data,file=file.path("/Users/aguang/CORE/egme/EGME/notebooks/final_coverage_data.csv"))
+```
+
+```{r, echo=FALSE, eval=FALSE}
+ggplot(coverage_line_data, aes(x = position, y = total_coverage, fill = rRNA_name)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~rRNA_name, scales = "free") +
+  labs(
+    title = "rRNA Coverage Plots Across All Libraries",
+    x = "Position on rRNA",
+    y = "Total Read Coverage Count"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    strip.text = element_text(face = "bold")
+  )
+```

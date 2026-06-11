@@ -39,6 +39,8 @@ library(fs)
 # Define the base directory path and the list of tRNAs
 base_path <- "/Users/aguang/CORE/egme/research_mount/"
 tRNA_list <- c("GluCTC", "AlaAGC", "CysGCA", "GluTTC", "LysCTT", "GlyCCC")
+plot_data <- read_csv(file=file.path("/Users/aguang/CORE/egme/EGME/notebooks/plot_data.csv"))
+coverage_line_data <- read_csv(file=file.path("/Users/aguang/CORE/egme/EGME/notebooks/coverage_line_data.csv"))
 ```
 
 We write a function `process_tRNA_data` that given a file path and list of tRNAs:
